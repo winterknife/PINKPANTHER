@@ -1,7 +1,7 @@
 ; ------------------------------------------------------------------------
 ; File: TokenSteal64.asm
 ;
-; Author: @slaeryan
+; Author: winterknife
 ;
 ; Description: x64 assembly routine to steal token of System process and
 ; elevate calling process to System Integrity Level(IL)
