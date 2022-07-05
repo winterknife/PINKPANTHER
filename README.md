@@ -28,6 +28,8 @@ The prerequisites for building this project are:
 3. `Windows 10 WDK, version 2004`
 4. `Python3`
 
+It should be noted here that you can get away just by having an assembler(this project is using [MASM](https://docs.microsoft.com/en-us/cpp/assembler/masm/masm-for-x64-ml64-exe?view=msvc-170)) because technically that's all you need.
+
 After installing the above, it should be as easy as opening the solution with `Visual Studio` and building for `x64` target.
 
 After a successful build, binaries can be found inside the `Bin` directory under the appropriate bitness sub-directory.
@@ -45,6 +47,34 @@ Optionally, you may also consider automating the process with [kdbg-driver-vagra
 
 ## Screenshots
 ![demo](Misc/demo.PNG)
+
+## Warning
+As pointed out to me by Dmytro Oleksiuk([@d_olex](https://twitter.com/d_olex)), there are some not-so-subtle race conditions in the code specifically related to:
+1. Manually walking `nt!_EPROCESS` structures linked together via circular doubly linked list without using some sort of synchronization primitive/locking mechanism
+2. Unsafe referencing of these process objects while we are manipulating them
+They are currently not protected from any changes being made to them while we are working on it.
+
+Is this problematic?
+Yes, race conditions are always problematic and can cause all sorts of undefined behaviour/bugcheck unpleasantries.
+
+Will using this payload affect the stability of my exploit?
+It might.
+
+Well, what's the fix?
+The fix is two-step.
+
+Part 1 involves acquiring a wait-type lock like Pushlocks - `nt!PspActiveProcessLock`(pushlock pointer) for exclusive access using [nt!ExAcquirePushLockExclusive](https://docs.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/nf-wdm-exacquirepushlockexclusive) before walking the process list(normal kernel `APC` delivery needs to be disabled beforehand) and [nt!ExReleasePushLockExclusive](https://docs.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/nf-wdm-exreleasepushlockexclusive) to release the lock once we are done using the list at which point normal kernel `APC` delivery should be reenabled.
+However, since this global variable is not exported by `nt` kernel a much more decent and safe approach would be to use [nt!ZwQuerySystemInformation](https://docs.microsoft.com/en-us/windows/win32/sysinfo/zwquerysysteminformation) `API` with `SYSTEM_INFORMATION_CLASS == SystemProcessInformation` to find the `PID` from `ImageName` and [nt!PsLookupProcessByProcessId](https://docs.microsoft.com/en-us/windows-hardware/drivers/ddi/ntifs/nf-ntifs-pslookupprocessbyprocessid) to get `nt!_EPROCESS VA` from `PID`.
+If you are curious though about how the kernel does the former, I'd request you to look at `nt!PsGetNextProcess` in a disassembler.
+
+Part 2 involves safely referencing objects using [nt!ObReferenceObject](https://docs.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/nf-wdm-obfreferenceobject) family of `APIs` to increase the reference count on the process object so that it cannot be deleted until we explicitly decrement it at the end once we are done with it using [nt!ObDereferenceObject](https://docs.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/nf-wdm-obdereferenceobject).
+Note that increasing the reference count manually is redundant since a call to [nt!PsLookupProcessByProcessId](https://docs.microsoft.com/en-us/windows-hardware/drivers/ddi/ntifs/nf-ntifs-pslookupprocessbyprocessid), if successful, does that for us.
+
+Implementing these fixes, however, would require finding `ntoskrnl.exe` base address and resolving symbols therein by walking the `EAT` to find the function pointers using some string hashing algorithm all of which would dramatically increase payload size.
+
+I might decide to implement that someday or just write in `C` and spam the compiler output :)
+
+Thanks to Dmytro Oleksiuk([@d_olex](https://twitter.com/d_olex)) and Paul L.([@am0nsec](https://twitter.com/am0nsec)) for pointing out the error(s) and also suggesting the fix.
 
 ## Related Works
 1. [Exploit Development: Panic! At The Kernel - Token Stealing Payloads Revisited on Windows 10 x64 and Bypassing SMEP](https://connormcgarr.github.io/x64-Kernel-Shellcode-Revisited-and-SMEP-Bypass/)
